@@ -3,23 +3,13 @@
 Simple Path Dependent McKean Vlasov Control Solver Test
 """
 
-from tokenize import PlainToken
 import torch
-import torch.nn as nn
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 import torch.multiprocessing as mp
-import torch.optim as optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
-import pandas as pd
 import numpy as np
-import time
-from matplotlib.collections import LineCollection
-from matplotlib.colors import LinearSegmentedColormap
-from matplotlib import cm
-
-from NeuralNets import Network
-import os
+from datetime import datetime
+import pandas as pd
+from plot_functions import *
 # Set multiprocessing start method
 mp.set_start_method('spawn', force=True)
 
@@ -30,7 +20,9 @@ import warnings
 warnings.filterwarnings("ignore")
 from Param import DefaultParams
 from high_dim_path_model import HighDimPathModel
-from Path_MKV_Solver_2 import PathMKV
+from avg_path_model import AvgPathModel
+
+from Path_MKV_Solver import PathMKV
 
 def main():
     """Main function to run the MKV solver test."""
@@ -46,93 +38,53 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
     
-    # ================================================================= ===========
-    # Parameters Setup 
-    # ============================================================================
-    params = DefaultParams(d=2, control_type='B').params
-    setup = HighDimPathModel(params) 
-    model = PathMKV(setup, params)
-    model.train()
 
-   
+    control_types = ["Xt"] # ["X", "B"]
+    d_list = [1]
+    model_ = "TDAvg"
+    model_dic = {"TDTer": HighDimPathModel,
+                 "TDAvg": AvgPathModel}
+    choice = model_dic[model_]
+    for d_ in d_list: 
+        for control in control_types:
+            print(f"Training begins d = {str(d_)}, control =", control)
+            # ================================================================= ===========
+            # Parameters Setup 
+            # ============================================================================
+            params = DefaultParams(d=d_, control_type=control, N=5).params
+            setup = choice(params, delay=0) 
+            model = PathMKV(setup, params)
+            # Get current time
+            now = datetime.now()
+            # Format as string: YYYYMMDD_HHMM
+            timestamp = now.strftime("_%Y%m%d%H%M")
+            # Example filename
+            model.filename = model_ + "_delay0N5_" + model.filename + "_" + timestamp
+            model.train(plot=False)
+            now = datetime.now()
+            timestamp2 = now.strftime("_%H%M")
+            model.filename += timestamp2
 
-    print(f"model filename: {model.filename}")
+            print(f"model filename: {model.filename}")
 
-    # ============================================================================
-    # Check for pretrained models and load if available
-    # ============================================================================
+            # ============================================================================
+            # Save the model
+            # ============================================================================
+            print("\nSaving model...")
+            model.save_NN()
+            
+            # ============================================================================
+            # Save results
+            # ============================================================================
+            print("\nSaving loss results...")
+            model.save_loss()
+            
+            
+            print(f"Loss data saved as: outputLoss/{model.filename}_val_loss.csv")
+            print(f"Model saved as: outputNN/{model.filename}")
 
-    
-    # # Check for the specific pretrained model file
-    # model_file_path = f"outputNN/{model.filename}.pth"
-    
-    # if os.path.exists(model_file_path):
-    #     print(f"\nFound pretrained model: {model_file_path}")
-    #     print(f"Loading pretrained model: {os.path.basename(model_file_path)}")
         
-    #     try:
-    #         loaded_state = torch.load(model_file_path, map_location=device)
-            
-    #         # Load state dict for each player's network
-    #         for d in range(D):
-    #             if f'net_actor_{d}' in loaded_state:
-    #                 net_control[d].load_state_dict(loaded_state[f'net_actor_{d}'])
-    #                 print(f"  Loaded network for player {d+1}")
-    #             else:
-    #                 print(f"  Warning: No saved state found for player {d+1}")
-            
-    #         print("Pretrained model loaded successfully!")
-    #         skip_training = True
-            
-    #     except Exception as e:
-    #         print(f"Error loading pretrained model: {e}")
-    #         print("Will train from scratch instead.")
-    #         skip_training = False
-    # else:
-    #     print(f"\nNo pretrained model found at: {model_file_path}")
-    #     print("Will train from scratch.")
-    #     skip_training = False
-
-    # ============================================================================
-    # Train the model (only if no pretrained model was loaded)
-    # ============================================================================
-    # if not skip_training:
-    #     print("\nStarting training...")
-    #     model.train_players()
-    # else:
-    #     print("\nSkipping training - using pretrained model.")
-
+    print(f"\nTest completed.\n")
     
-    # ============================================================================
-    # Generate trajectories
-    # ============================================================================
-    # print("\nGenerating trajectories...")
-    # if state_dim == 1:
-    #     _ = model.generate_1d_trajectory(plot_mean=True)
-    #     model.generate_animation(plot_mean=True)
-    #     model.generate_animation(plot_mean=False)
-    # else:
-    #     _ = model.generate_2d_trajectory(plot_mean=False, save=False, filename=model.filename + f"sample{1}")
-    #     model.generate_animation(plot_mean=False, filename=model.filename + f"sample{1}")
-    #     model.generate_animation(plot_mean=True)
-
-    # ============================================================================
-    # Save the model
-    # ============================================================================
-    print("\nSaving model...")
-    model.save_NN()
-    
-    # ============================================================================
-    # Plot and save results
-    # ============================================================================
-    print("\nPlotting loss results...")
-    model.save_loss()
-    
-    
-    print(f"\nTest completed.")
-    print(f"Loss plot saved as: output/loss{model.filename}.png")
-    print(f"Loss data saved as: outputLoss/{model.filename}_val_loss.csv")
-    print(f"Model saved as: outputNN/{model.filename}")
-
 if __name__ == "__main__":
     main() 

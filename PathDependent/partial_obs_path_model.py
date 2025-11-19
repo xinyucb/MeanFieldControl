@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-class HighDimPathModel():
+class PartialObsPathModel():
     def __init__(self, params, kappa=0.6, sigma=0.1, eta=0.01, K=1.25, T=1,  c=1, \
         mu_0 = 0, sigma_0 = 0.5) -> None:
         params_equ = params["equation"]
@@ -28,25 +28,11 @@ class HighDimPathModel():
         self.eta = eta
         self.delay = 4
 
+
         # default mean and covariance for the initial random variable
         self.mu0 = mu_0 * torch.tensor(np.ones(self.d)).float().to(self.device)
         self.var0 = sigma_0**2 * torch.tensor(np.eye(self.d)).float().to(self.device) 
     
-    def statistics_of_importance(self, X_buffer):
-        """
-        return the terminal value of the path
-        """
-        X_path = torch.stack(X_buffer, dim=1)  # [X0, X1, ..., XT]
-
-
-        if self.d > 1:
-            X = X_path.detach().squeeze(-1).numpy()    # α₂
-        else:
-            X = X_path.detach().numpy()    # α₂
-
-        X1 = np.mean(X[:,-1,:], axis=1)
-        return X1
-
     def change_mean_var(self, mu0, var0):
         """
         mu0: numpy array [d,]

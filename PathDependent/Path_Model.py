@@ -80,5 +80,5 @@ class MVPathModel():
         payoff =torch.abs(torch.mean(X_path, dim=1) - self.K)
         mean_payoff = torch.mean(payoff)
         var_payoff = torch.var(payoff)
-        return  mean_payoff + self.c * var_payoff
+        return  mean_payoff + self.c * var_payoff + mean_payoff
 

@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-class HighDimPathModel():
+class AvgPathModel():
     def __init__(self, params, kappa=0.6, sigma=0.1, eta=0.01, K=1.25, T=1,  c=1, \
-        mu_0 = 0, sigma_0 = 0.5) -> None:
+        mu_0 = 0, sigma_0 = 0.5, delay=3) -> None:
         params_equ = params["equation"]
         params_train = params["train"]
 
@@ -26,27 +26,29 @@ class HighDimPathModel():
         self.K = K
         self.c = c
         self.eta = eta
-        self.delay = 4
+        self.delay = delay
+
 
         # default mean and covariance for the initial random variable
         self.mu0 = mu_0 * torch.tensor(np.ones(self.d)).float().to(self.device)
         self.var0 = sigma_0**2 * torch.tensor(np.eye(self.d)).float().to(self.device) 
-    
+
+        
     def statistics_of_importance(self, X_buffer):
         """
-        return the terminal value of the path
+        return the average of the path
         """
         X_path = torch.stack(X_buffer, dim=1)  # [X0, X1, ..., XT]
-
 
         if self.d > 1:
             X = X_path.detach().squeeze(-1).numpy()    # α₂
         else:
             X = X_path.detach().numpy()    # α₂
 
-        X1 = np.mean(X[:,-1,:], axis=1)
+        X1 = np.mean(X, axis=1)
+        X1 = np.mean(X1, axis=1)
         return X1
-
+    
     def change_mean_var(self, mu0, var0):
         """
         mu0: numpy array [d,]
@@ -75,13 +77,12 @@ class HighDimPathModel():
         Xt = X_path[:, -1]
         if self.delay > 0:
             if j <= self.delay: return 0 * Xt # just to match the dimension
-            Xt_minus_2 = X_path[:, -3]
+            Xt_minus_2 = X_path[:, -self.delay]
             return  (Xt - Xt_minus_2 +  control) * dt
         else:
             return  (Xt  +  control) * dt
 
     def sigma(self, DW_t, t, X_path, control):
-        # if t[0,0] <= self.delay: return 0
         sigma_torch = torch.from_numpy(self.sigma_).to(DW_t.device, dtype=DW_t.dtype)
         
         mat1 = sigma_torch.unsqueeze(0).expand(self.M, self.d, self.BM_dim)  # (500, 100, 2)
@@ -97,7 +98,6 @@ class HighDimPathModel():
     def get_mean_expanded(self, Xt):
         """
         Xt: Batch size (M) * d  
-
         return: M copies of mu_t in shape of (M,d)
         """
         return torch.mean(Xt, axis=0).expand(self.M,-1) # (M,d)
@@ -117,42 +117,48 @@ class HighDimPathModel():
  
     def g_terminal(self, X_path):
         #XT: (M, d)
-        XT = X_path[:,-1,:]  
 
-        AT = torch.mean(XT, dim=1)
+        # taking average with respect to time
+        AT = torch.mean(X_path, dim=1) # M,d
+        # average over d dimension
+        AT = torch.mean(AT, dim=1) # M
+
         payoff =torch.abs(AT - self.K)
         mean_payoff = torch.mean(payoff)
         var_payoff = torch.var(payoff)
         return  mean_payoff + self.c * var_payoff + mean_payoff
 
-    def get_control(self, j, t_, X_path, dw, control_type):
+    def get_control(self, j, t_, X_path, dw, control_type, A_path=None):
         """
         j: an integer in [0, 1, ..., N-1]
         t: (M, 1)
         X_path: (M, j+1, d)
         """
+        
         X0 = X_path[:,0,:]
-        Xt = X_path[:,j,:]  
-    
+        Xt = X_path[:,j,:] 
+        if A_path != None: 
+            At = A_path[:,j,:]
 
-  
-        hist_len = self.N + 1
-        pad_len = hist_len - X_path.size(1)
-        X_path_padded = F.pad(X_path, (0, 0, 0, pad_len), mode='constant', value=0.0) # [N+1, d]
-        # 
         ## Generate the control based on control type
         if control_type == "B":     
             net_input = torch.cat([t_,  X0, dw], dim=1)
             
         elif control_type == "X": 
+            hist_len = self.N + 1
+            pad_len = hist_len - X_path.size(1)
+            X_path_padded = F.pad(X_path, (0, 0, 0, pad_len), mode='constant', value=0.0) # [N+1, d]
+
             net_input = torch.cat([t_,  X_path_padded.view(self.M,-1)], dim=1)       # (M, hist_len, d)
             net_input = net_input.view(self.M,-1)
             
 
         elif control_type == "Xt":
-
             net_input = torch.cat([t_, Xt], dim=1)
             net_input = net_input.view(self.M,-1)
-                
+
+        elif control_type == "XtAt":
+            net_input = torch.cat([t_, Xt, At], dim=1)
+            
         return net_input
 
